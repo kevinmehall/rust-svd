@@ -40,51 +40,43 @@ type XmlIter<'a> = Events<'a, BufferedReader<File>>;
 
 pub fn collect<'a, T>(iter:&'a mut XmlIter, mut arg:T, back:for<'b> fn(&'b mut XmlIter, &mut T, &str)) -> Option<T> {
     loop {
-        let next = iter.next();
-        if let Some(e) = next {
-            match e {
-                StartElement { name, attributes: _, namespace: _ } => {
-                    back(iter, &mut arg, name.local_name.as_slice());
-                },
-                EndElement { name: _ } => {
-                    break;
-                },
-                Error(e) => {
-                    println!("Error: {}", e);
-                    return None;
-                }
-                _ => {},
+        match iter.next() {
+            Some(StartElement { name, attributes: _, namespace: _ }) => {
+                back(iter, &mut arg, name.local_name.as_slice());
             }
-        } else {
-            return None;
+            Some(EndElement { name: _ }) => break,
+            Some(Error(e)) => {
+                println!("Error: {}", e);
+                return None;
+            }
+            Some(_) => {}
+            None => return None
         }
     }
+
     return Some(arg);
 }
 
 pub fn skip_node<'a>(iter:&'a mut XmlIter) {
     let mut depth:uint = 1;
     loop {
-        let next = iter.next();
-        if let Some(e) = next {
-            match e {
-                StartElement { name: _, attributes: _, namespace: _ } => {
-                    depth = depth + 1;
-                },
-                EndElement { name: _ } => {
-                    depth = depth - 1;
-                    if depth == 0 {
-                        return;
-                    }
-                },
-                Error(e) => {
-                    println!("Error: {}", e);
+        match iter.next() {
+            Some(StartElement { name: _, attributes: _, namespace: _ }) => {
+                depth = depth + 1;
+            }
+            Some(EndElement { name: _ }) => {
+                depth = depth - 1;
+                if depth == 0 {
                     return;
                 }
-                _ => {}
+            },
+            Some(Error(e)) => {
+                println!("Error: {}", e);
+                return;
             }
-        } else {
-            return;
+            Some(..) => {}
+            None => return
+
         }
     }
 }
@@ -97,44 +89,22 @@ impl<T:FromXml> FromXml for Vec<T> {
     fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<Vec<T>> {
         let mut ret:Vec<T> = vec![];
         loop {
-            let next = iter.next();
-            if let Some(e) = next {
-                match e {
-                    StartElement { name: _, attributes: _, namespace: _ } => {
-                        ret.push(FromXml::from_xml(iter).unwrap());
-                    },
-                    EndElement { name: _ } => {
-                        break;
-                    },
-                    _ => (),
+            match iter.next() {
+                Some(StartElement { name: _, attributes: _, namespace: _ }) => {
+                    ret.push(FromXml::from_xml(iter).unwrap());
                 }
-            } else {
-                return None;
+                Some(EndElement { name: _ }) => break,
+                Some(..) => (),
+                None => return None
             }
         }
-        return Some(ret);
+        Some(ret)
     }
 }
 
 impl FromXml for uint {
     fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<uint> {
-        let mut str = "".to_string();
-        loop {
-            let next = iter.next();
-            if let Some(e) = next {
-                match e {
-                    Characters(text) => {
-                        str.push_str(text.as_slice());
-                    },
-                    _ => {
-                        break;
-                    }
-                }
-            } else {
-                return None;
-            }
-        }
-        return from_str(str.as_slice());
+        FromXml::from_xml(iter).and_then(|s: String| from_str(&*s))
     }
 }
 
@@ -142,40 +112,28 @@ impl FromXml for String {
     fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<String> {
         let mut str = "".to_string();
         loop {
-            let next = iter.next();
-            if let Some(e) = next {
-                match e {
-                    Characters(text) => {
-                        str.push_str(text.as_slice());
-                    },
-                    _ => {
-                        break;
-                    }
-                }
-            } else {
-                return None;
+            match iter.next() {
+                Some(Characters(text)) => str.push_str(text.as_slice()),
+                Some(_) => break,
+                None => return None,
             }
         }
-        return Some(str);
+        Some(str)
     }
 }
 
 pub fn parse_root<'a, T:FromXml>(iter:&'a mut XmlIter) -> Option<T> {
     loop {
-        let next = iter.next();
-        if let Some(e) = next {
-            match e {
-                StartElement { name: _, attributes: _, namespace: _ } => {
-                    return FromXml::from_xml(iter);
-                },
-                Error(e) => {
-                    println!("Error: {}", e);
-                    return None;
-                }
-                _ => {}
+        match iter.next() {
+            Some(StartElement { name: _, attributes: _, namespace: _ }) => {
+                return FromXml::from_xml(iter);
             }
-        } else {
-            return None;
+            Some(Error(e)) => {
+                println!("Error: {}", e);
+                return None;
+            }
+            Some(..) => {}
+            None => return None
         }
     }
 }
