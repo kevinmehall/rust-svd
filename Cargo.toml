@@ -1,0 +1,11 @@
+[package]
+
+name = "svd"
+version = "0.0.1"
+authors = ["Tim Cameron Ryan <id@timryan.org>"]
+
+[[bin]]
+name = "svd"
+
+[dependencies]
+xml-rs = "0.1.3"
