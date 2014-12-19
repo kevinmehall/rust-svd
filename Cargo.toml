@@ -1,0 +1,8 @@
+[package]
+
+name = "macro"
+version = "0.0.1"
+authors = ["Tim Cameron Ryan <id@timryan.org>"]
+
+[dependencies.foo]
+path = "foo/"
