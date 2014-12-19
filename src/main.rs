@@ -30,13 +30,8 @@ impl RegField {
 
 foo!(
 
-0x0 => r[1] ENABLE;
-
-)
-
-foo!(
-
-0x0 => r[1] DISABLE;
+0x0 => r[1] ENABLE,
+0x0 => r[1] DISABLE,
 
 )
 
@@ -88,19 +83,6 @@ impl DMA {
     }
 }
 
-#[deriving(Show)]
-struct DMAUpdate {
-	pub origin:&'static mut DMA,
-	pub diff:(uint, uint),
-}
-
-impl Drop for DMAUpdate {
-	fn drop(&mut self) {
-		// println!("UPDATING");
-		self.origin.modify(self.diff);
-	}
-}
-
 fn or_tuples(l:(uint, uint), r:(uint, uint)) -> (uint, uint) {
 	let (la, lb) = l;
 	let (ra, rb) = r;
@@ -112,96 +94,33 @@ fn shift_tuple(pos:uint, l:(uint, uint)) -> (uint, uint) {
 	(la << pos, lb << pos)
 }
 
-trait HAS_ENABLE {
-	fn OFFSET_ENABLE(&self) -> uint;
+#[deriving(Show)]
+struct DMAUpdate {
+	pub origin:&'static mut DMA,
+	pub diff:(uint, uint),
 }
 
-trait SET_ENABLE for Sized? {
-	fn set_enable(&mut self) -> &mut Self;
-}
-
-impl<'a,T> SET_ENABLE for T where T:Applyable+HAS_ENABLE+'a {
-	fn set_enable(&mut self) -> &mut T {
-		let offset = self.OFFSET_ENABLE();
-		self.apply(offset, ENABLE.set())
+impl Drop for DMAUpdate {
+	fn drop(&mut self) {
+		self.origin.modify(self.diff);
 	}
 }
 
-trait HAS_DISABLE {
-	fn OFFSET_DISABLE(&self) -> uint;
-}
-
-trait SET_DISABLE for Sized? {
-	fn set_disable(&mut self) -> &mut Self;
-}
-
-impl<'a,T> SET_DISABLE for T where T:Applyable+HAS_DISABLE+'a {
-	fn set_disable(&mut self) -> &mut T {
-		let offset = self.OFFSET_DISABLE();
-		self.apply(offset, DISABLE.set())
-	}
-}
-
-trait Applyable {
-	fn apply(&mut self, pos:uint, diff:(uint, uint)) -> &mut Self;
-}
-
-impl Applyable for DMAUpdate {
+impl DMAUpdate {
 	fn apply(&mut self, pos:uint, diff:(uint, uint)) -> &mut DMAUpdate {
 		self.diff = or_tuples(self.diff, shift_tuple(pos, diff));
 		self
 	}
+
+	fn set_enable(&mut self) -> &mut DMAUpdate {
+		self.apply(0x0, ENABLE.set())
+	}
+
+	fn set_disable(&mut self) -> &mut DMAUpdate {
+		self.apply(0x1, DISABLE.set())
+	}
 }
 
-impl HAS_ENABLE for DMAUpdate {
-	fn OFFSET_ENABLE(&self) -> uint { 0 }
-}
-
-impl HAS_DISABLE for DMAUpdate {
-	fn OFFSET_DISABLE(&self) -> uint { 1 }
-}
-
-// impl<'a> Updatable for DMA {
-// 	fn update(self) {
-// 		println!("DMA {}", self.stage);
-// 	}
-// }
-
-// impl Drop for DMA {
-// 	fn drop(&mut self) {
-// 		println!("DONE");
-// 	}
-// }
-
-// impl DMA {
-// 	fn set_enable(&self) -> UpdateReg<DMA> {
-// 		let (c, s) = self.stage;
-// 		UpdateReg {
-// 			reg: DMA {
-// 				field: self.field,
-// 				stage: (c | 0, s | 0x1),
-// 			},
-// 		}
-// 	}
-
-// 	fn set_disable(&self) -> UpdateReg<DMA> {
-// 		let (c, s) = self.stage;
-// 		UpdateReg {
-// 			reg: DMA {
-// 				field: self.field,
-// 				stage: (c | 0, s | 0x2),
-// 			},
-// 		}
-// 	}
-// }
-
-// fn main() {
-//     let x = DMA { field: 0, stage: (0, 0) };
-
-//     let res = x.set_enable().set_disable();
-
-//     println!("{}", res);
-// }
 
 static mut dma:DMA = DMA { field: 0 };
 

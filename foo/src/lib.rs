@@ -1,5 +1,9 @@
 #![feature(phase, plugin_registrar, macro_rules, quote)]
 
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 extern crate syntax;
 extern crate rustc;
 
@@ -17,7 +21,6 @@ use syntax::parse::token::Lit;
 use syntax::parse::token::{str_to_ident};
 use syntax::ext::base::{ExtCtxt, ItemModifier, DummyResult, MacResult, MacExpr, MacItems};
 // NB. this is important or the method calls don't work
-use syntax::ext::build::AstBuilder;
 use syntax::parse::token;
 use syntax::util::small_vector::SmallVector;
 
@@ -27,6 +30,13 @@ pub fn plugin_registrar(reg: &mut rustc::plugin::Registry) {
 }
 
 type AstIterator<'a> = Peekable<&'a ast::TokenTree, Items<'a, ast::TokenTree>>;
+
+fn is_ident(t:Option<&&ast::TokenTree>) -> bool {
+	match t {
+		Some(&&TtToken(_, Token::Ident(..))) => true,
+		_ => false,
+	}
+}
 
 fn read_ident<'a>(iter:&mut AstIterator<'a>) -> Result<String, String> {
 	match iter.peek() {
@@ -56,6 +66,13 @@ fn read_tree<'a>(item:&'a Delimited) -> AstIterator<'a> {
 	item.tts.iter().peekable()
 }
 
+fn is_int(t:Option<&&ast::TokenTree>) -> bool {
+	match t {
+		Some(&&TtToken(_, Token::Literal(Lit::Integer(..), _))) => true,
+		_ => false,
+	}
+}
+
 fn read_int<'a>(iter:&mut AstIterator<'a>) -> Result<int, String> {
 	match iter.peek() {
 		Some(&&TtToken(_, Token::Literal(Lit::Integer(value), kind))) => {
@@ -75,16 +92,27 @@ fn read_int<'a>(iter:&mut AstIterator<'a>) -> Result<int, String> {
 	}
 }
 
-fn read_token<'a>(iter:&mut AstIterator<'a>, t:Token) -> Result<(), String> {
-	match (iter.peek(), &t) {
-		(Some(&&TtToken(_, Token::FatArrow)), &Token::FatArrow) => {
-			iter.next();
-			Ok(())
-		},
-		_ => {
-			Err(format!("expecting simple token {}", t))
+fn is_token(t:&Token, u:&Token) -> bool {
+	match (t, u) {
+		(&Token::FatArrow, &Token::FatArrow) |
+		(&Token::Comma, &Token::Comma) => {
+			true
 		}
+		_ => false
 	}
+}
+
+fn read_token<'a>(iter:&mut AstIterator<'a>, t:Token) -> Result<(), String> {
+	match iter.peek() {
+		Some(&&TtToken(_, ref u)) => {
+			if is_token(&t, u) {
+				iter.next();
+				return Ok(())
+			}
+		}
+		_ => {}
+	}
+	Err(format!("expecting simple token {}", t))
 }
 
 #[deriving(Show)]
@@ -113,6 +141,18 @@ fn parse_field<'a>(iter:&mut AstIterator<'a>) -> Result<Field, String> {
 	return Ok(a);
 }
 
+fn parse_fields<'a>(iter:&mut AstIterator<'a>) -> Result<Vec<Field>, String> {
+	let mut out:Vec<Field> = vec![];
+	while is_int(iter.peek()) {
+		out.push(try!(parse_field(iter)));
+		match read_token(iter, Token::Comma) {
+			Ok(..) => (),
+			Err(..) => { break }
+		}
+	}
+	Ok(out)
+}
+
 fn expand<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, tokens: &[ast::TokenTree]) -> Box<MacResult + 'a> {
 	let mut result = vec![];
 
@@ -120,20 +160,16 @@ fn expand<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, tokens: &[ast::TokenTree])
 
 	let mut iter = tokens.iter().peekable();
 
-	    for i in tokens.iter() {
-	    	// println!("{}", i);
-	    }
+    // for i in tokens.iter() {
+    // 	println!("{}", i);
+    // }
 
-	match parse_field(&mut iter) {
-		Ok(field) => {
-			println!("{}", field);
-			let n = str_to_ident(field.name.as_slice());
-			let width = field.width;
-			result.push(quote_item!(cx, const $n:RegField = RegField { width: $width };).unwrap());
-		},
-		Err(err) => {
-			cx.span_err(sp, err.as_slice());
-		}
+    for field in parse_fields(&mut iter).unwrap().iter() {
+		println!("{}", field);
+		let n = str_to_ident(field.name.as_slice());
+		let width = field.width;
+		let tokens = quote_tokens!(cx, const $n:RegField = RegField { width: $width };);
+		result.push(quote_item!(cx, $tokens).unwrap());
 	}
 
 	// if false {
