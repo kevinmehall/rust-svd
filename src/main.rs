@@ -5,6 +5,7 @@ extern crate xml;
 
 use std::io::{File, BufferedReader};
 use std::default::Default;
+use std::num::from_str_radix;
 
 use xml::reader::EventReader;
 use fromxml::{parse_root};
@@ -72,6 +73,14 @@ deriving_fromxml! {
     }
 }
 
+fn parse_num(s: &str) -> Option<u32> {
+    if s.slice_to(2) == "0x" {
+        from_str_radix(s.slice_from(2), 16)
+    } else {
+        from_str_radix(s, 10)
+    }
+}
+
 fn write_doc_comment(doc: Option<&String>) {
     if let Some(d) = doc {
         print!(" //= {}", d);
@@ -85,8 +94,16 @@ fn write_device(device: &Device) {
 }
 
 fn write_peripheral(peripheral: &Peripheral) {
+    let mut registers: Vec<_> = peripheral.registers.iter().collect();
+
+    registers.as_mut_slice().sort_by(|a, b| {
+        let a = a.addressOffset.as_ref().map(|x| parse_num(x.as_slice()));
+        let b = b.addressOffset.as_ref().map(|x| parse_num(x.as_slice()));
+        a.cmp(&b)
+    });
+
     println!("ioregs!({} = {{", peripheral.name);
-    for register in peripheral.registers.iter() {
+    for &register in registers.iter() {
         write_register(register);
     }
     println!("}}")
