@@ -71,13 +71,63 @@ deriving_fromxml! {
     }
 }
 
+fn print_doc_comment(doc: Option<&String>) {
+    if let Some(d) = doc {
+        print!(" //= {}", d);
+    }
+}
+
 fn main() {
     let file = File::open(&Path::new("file.xml")).unwrap();
     let reader = BufferedReader::new(file);
 
     let mut parser = EventReader::new(reader);
     let mut iter = parser.events();
-    let device:Device = parse_root::<Device>(&mut iter).unwrap();
+    let device: Device = parse_root(&mut iter).unwrap();
 
-    println!("{}", device);
+    for peripheral in device.peripherals.iter() {
+        println!("ioregs!({} = {{", peripheral.name);
+        for register in peripheral.registers.iter() {
+            let offset = register.addressOffset.as_ref().map_or("", |x| x.as_slice());
+            let size = register.size.unwrap_or(0);
+            print!("    {} => reg{} {} {{", offset, size, register.name);
+            print_doc_comment(register.description.as_ref());
+            print!("\n");
+
+            for field in register.fields.iter() {
+                let lsb = field.bitOffset.unwrap();
+                let width = field.bitWidth.unwrap();
+
+                print!("         {}", lsb);
+
+                if width > 1 {
+                    print!("..{}", lsb + width - 1);
+                }
+
+                print!(" => {}", field.name);
+
+                if field.enumeratedValues.len() == 0 {
+                    print!(",");
+                } else {
+                    print!(" {{");
+                }
+
+                print_doc_comment(field.description.as_ref());
+                print!("\n");
+
+                if field.enumeratedValues.len() != 0 {
+                    for en in field.enumeratedValues.iter() {
+                        if en.name.len() == 0 { continue } // TODO: this is a <name>, not an <enumeratedValues>
+                        print!("             {} => {}", en.name, en.value);
+                        print_doc_comment(en.description.as_ref());
+                        print!("\n");
+                    }
+                    println!("         }}");
+                }
+            }
+
+            println!("    }}");
+        }
+        println!("}}")
+    }
 }
