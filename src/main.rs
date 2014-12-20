@@ -110,6 +110,9 @@ fn write_peripheral(peripheral: &Peripheral) {
 }
 
 fn write_register(register: &Register) {
+    if let (Some(dim), Some(dim_increment)) = (register.dim, register.dimIncrement.as_ref()) {
+        println!("    // repeat: {} increment {}", dim, dim_increment);
+    }
     let offset = register.addressOffset.as_ref().map_or("", |x| x.as_slice());
     let size = register.size.unwrap_or(0);
     print!("    {} => reg{} {} {{", offset, size, register.name);
