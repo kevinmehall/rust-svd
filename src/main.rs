@@ -19,11 +19,11 @@ deriving_fromxml! {
         version:Option<String>,
         description:Option<String>,
         cpu:Option<CPU>,
-        peripherals:Option<Vec<Peripheral>>,
+        peripherals: Vec<Peripheral>,
     }
 
     struct Peripheral {
-        name:Option<String>,
+        name: String,
         version:Option<String>,
         description:Option<String>,
         groupName:Option<String>,
@@ -31,38 +31,38 @@ deriving_fromxml! {
         baseAddress:Option<String>,
         access:Option<String>,
         interrupt:Option<Interrupt>,
-        registers:Option<Vec<Register>>,
+        registers: Vec<Register>,
     }
 
     struct Interrupt {
-        name:Option<String>,
+        name: String,
         value:Option<uint>,
     }
 
     struct Register {
+        name: String,
         dim:Option<uint>,
-        dimIncrement:Option<uint>,
-        name:Option<String>,
+        dimIncrement:Option<String>,
         description:Option<String>,
-        addressOffset:Option<uint>,
+        addressOffset:Option<String>,
         size:Option<uint>,
         access:Option<String>,
-        fields:Option<Vec<Field>>,
+        fields: Vec<Field>,
     }
 
     struct Field {
-        name:Option<String>,
+        name: String,
         description:Option<String>,
         bitOffset:Option<uint>,
         bitWidth:Option<uint>,
         access:Option<String>,
-        enumeratedValues:Option<Vec<EnumeratedValue>>,
+        enumeratedValues: Vec<EnumeratedValue>,
     }
 
     struct EnumeratedValue {
-        name:Option<String>,
+        name: String,
+        value: String,
         description:Option<String>,
-        value:Option<String>,
     }
 
     struct CPU {
