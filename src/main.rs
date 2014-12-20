@@ -5,6 +5,7 @@ extern crate xml;
 
 use std::io::{File, BufferedReader};
 use std::default::Default;
+
 use xml::reader::EventReader;
 use fromxml::{parse_root};
 
@@ -71,9 +72,68 @@ deriving_fromxml! {
     }
 }
 
-fn print_doc_comment(doc: Option<&String>) {
+fn write_doc_comment(doc: Option<&String>) {
     if let Some(d) = doc {
         print!(" //= {}", d);
+    }
+}
+
+fn write_device(device: &Device) {
+    for peripheral in device.peripherals.iter() {
+        write_peripheral(peripheral);
+    }
+}
+
+fn write_peripheral(peripheral: &Peripheral) {
+    println!("ioregs!({} = {{", peripheral.name);
+    for register in peripheral.registers.iter() {
+        write_register(register);
+    }
+    println!("}}")
+}
+
+fn write_register(register: &Register) {
+    let offset = register.addressOffset.as_ref().map_or("", |x| x.as_slice());
+    let size = register.size.unwrap_or(0);
+    print!("    {} => reg{} {} {{", offset, size, register.name);
+    write_doc_comment(register.description.as_ref());
+    print!("\n");
+
+    for field in register.fields.iter() {
+        write_field(field);
+    }
+    println!("    }}");
+}
+
+fn write_field(field: &Field) {
+    let lsb = field.bitOffset.unwrap();
+    let width = field.bitWidth.unwrap();
+
+    print!("         {}", lsb);
+
+    if width > 1 {
+        print!("..{}", lsb + width - 1);
+    }
+
+    print!(" => {}", field.name);
+
+    if field.enumeratedValues.len() == 0 {
+        print!(",");
+    } else {
+        print!(" {{");
+    }
+
+    write_doc_comment(field.description.as_ref());
+    print!("\n");
+
+    if field.enumeratedValues.len() != 0 {
+        for en in field.enumeratedValues.iter() {
+            if en.name.len() == 0 { continue } // TODO: this is a <name>, not an <enumeratedValues>
+            print!("             {} => {}", en.name, en.value);
+            write_doc_comment(en.description.as_ref());
+            print!("\n");
+        }
+        println!("         }}");
     }
 }
 
@@ -85,49 +145,5 @@ fn main() {
     let mut iter = parser.events();
     let device: Device = parse_root(&mut iter).unwrap();
 
-    for peripheral in device.peripherals.iter() {
-        println!("ioregs!({} = {{", peripheral.name);
-        for register in peripheral.registers.iter() {
-            let offset = register.addressOffset.as_ref().map_or("", |x| x.as_slice());
-            let size = register.size.unwrap_or(0);
-            print!("    {} => reg{} {} {{", offset, size, register.name);
-            print_doc_comment(register.description.as_ref());
-            print!("\n");
-
-            for field in register.fields.iter() {
-                let lsb = field.bitOffset.unwrap();
-                let width = field.bitWidth.unwrap();
-
-                print!("         {}", lsb);
-
-                if width > 1 {
-                    print!("..{}", lsb + width - 1);
-                }
-
-                print!(" => {}", field.name);
-
-                if field.enumeratedValues.len() == 0 {
-                    print!(",");
-                } else {
-                    print!(" {{");
-                }
-
-                print_doc_comment(field.description.as_ref());
-                print!("\n");
-
-                if field.enumeratedValues.len() != 0 {
-                    for en in field.enumeratedValues.iter() {
-                        if en.name.len() == 0 { continue } // TODO: this is a <name>, not an <enumeratedValues>
-                        print!("             {} => {}", en.name, en.value);
-                        print_doc_comment(en.description.as_ref());
-                        print!("\n");
-                    }
-                    println!("         }}");
-                }
-            }
-
-            println!("    }}");
-        }
-        println!("}}")
-    }
+    write_device(&device);
 }
