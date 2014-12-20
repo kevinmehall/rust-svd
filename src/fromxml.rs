@@ -1,6 +1,7 @@
 #![macro_escape]
 
 use std::io::{File, BufferedReader};
+use std::str::FromStr;
 
 use xml::reader::Events;
 use xml::reader::events::XmlEvent::*;
@@ -102,23 +103,17 @@ impl<T:FromXml> FromXml for Vec<T> {
     }
 }
 
-impl FromXml for uint {
-    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<uint> {
-        FromXml::from_xml(iter).and_then(|s: String| from_str(&*s))
-    }
-}
-
-impl FromXml for String {
-    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<String> {
-        let mut str = "".to_string();
+impl<T> FromXml for T where T: FromStr {
+    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<T> {
+        let mut s = "".to_string();
         loop {
             match iter.next() {
-                Some(Characters(text)) => str.push_str(text.as_slice()),
+                Some(Characters(text)) => s.push_str(text.as_slice()),
                 Some(_) => break,
                 None => return None,
             }
         }
-        Some(str)
+        from_str(&*s)
     }
 }
 
