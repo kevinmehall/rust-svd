@@ -166,15 +166,20 @@ peripheral WDT2 {
 )
 
 static mut wdt: WDT::Peripheral = WDT::INIT;
+static mut wdt2: WDT2::Peripheral = WDT2::INIT;
 
 #[no_mangle]
 #[inline(never)]
 extern "C" fn jeepers() {
     unsafe {
         // wdt.DMA.write().ENABLE();
-        wdt.DMA.write().ENABLE().DISABLE();
-        wdt.DMA.update().WAIT(WDT::DMA::WAIT::Alarm).ENABLE(0);
+        // wdt.DMA.write().ENABLE().DISABLE();
+        // wdt.DMA.update().WAIT(WDT::DMA::WAIT::Alarm).ENABLE(0);
         // volatile_store(&mut dma.field as *mut u32, 3);
+
+        wdt2.CONFIG.write()
+            .WINDOW(WDT2::CONFIG::WINDOW::USE_16384_CLOCK_CYCLES)
+            .PER(WDT2::CONFIG::PER::USE_16384_CLOCK_CYCLES);
     }
 }
 
@@ -182,5 +187,6 @@ fn main() {
     unsafe {
         jeepers();
         println!("wdt {}", wdt);
+        println!("wdt2 {}", wdt2);
     }
 }
