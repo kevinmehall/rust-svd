@@ -8,7 +8,7 @@ use std::default::Default;
 use std::num::from_str_radix;
 
 use xml::reader::EventReader;
-use fromxml::{parse_root};
+use fromxml::{FromXml, XmlIter};
 
 mod fromxml;
 
@@ -162,8 +162,8 @@ fn main() {
     let reader = BufferedReader::new(file);
 
     let mut parser = EventReader::new(reader);
-    let mut iter = parser.events();
-    let device: Device = parse_root(&mut iter).unwrap();
+    let mut iter = XmlIter::new(parser.events()).unwrap();
+    let device: Device = FromXml::from_xml(&mut iter).unwrap();
 
     write_device(&device);
 }
