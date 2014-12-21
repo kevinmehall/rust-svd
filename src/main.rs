@@ -23,7 +23,9 @@ deriving_fromxml! {
         cpu:Option<CPU>,
         peripherals: Vec<Peripheral>,
     }
+}
 
+deriving_fromxml! {
     struct Peripheral {
         name: String,
         version:Option<String>,
@@ -33,14 +35,25 @@ deriving_fromxml! {
         baseAddress:Option<String>,
         access:Option<String>,
         interrupt:Option<Interrupt>,
-        registers: Vec<Register>,
+        registers: Vec<Regs>,
     }
+}
 
+deriving_fromxml! {
     struct Interrupt {
         name: String,
         value:Option<uint>,
     }
+}
 
+deriving_fromxml! {
+    enum Regs {
+        register(Register),
+        cluster(Cluster),
+    }
+}
+
+deriving_fromxml! {
     struct Register {
         name: String,
         dim:Option<uint>,
@@ -51,7 +64,17 @@ deriving_fromxml! {
         access:Option<String>,
         fields: Vec<Field>,
     }
+}
 
+deriving_fromxml! {
+    struct Cluster {
+        name: String,
+        registers: Vec<Register>,
+    }
+}
+
+
+deriving_fromxml! {
     struct Field {
         name: String,
         description:Option<String>,
@@ -60,13 +83,17 @@ deriving_fromxml! {
         access:Option<String>,
         enumeratedValues: Vec<EnumeratedValue>,
     }
+}
 
+deriving_fromxml! {
     struct EnumeratedValue {
         name: String,
         value: String,
         description:Option<String>,
     }
+}
 
+deriving_fromxml! {
     struct CPU {
         name:Option<String>,
         revision:Option<String>,
@@ -94,17 +121,22 @@ fn write_device(device: &Device) {
 }
 
 fn write_peripheral(peripheral: &Peripheral) {
-    let mut registers: Vec<_> = peripheral.registers.iter().collect();
+    /*let mut registers: Vec<_> = peripheral.registers.iter().collect();
 
     registers.as_mut_slice().sort_by(|a, b| {
         let a = a.addressOffset.as_ref().map(|x| parse_num(x.as_slice()));
         let b = b.addressOffset.as_ref().map(|x| parse_num(x.as_slice()));
         a.cmp(&b)
-    });
+    });*/
 
     println!("ioregs!({} = {{", peripheral.name);
-    for &register in registers.iter() {
-        write_register(register);
+    for register in peripheral.registers.iter() {
+        match *register {
+            Regs::register(ref r) => write_register(r),
+            Regs::cluster(ref c) => {
+                println!("    // cluster: {}", c.name);
+            }
+        }
     }
     println!("}}")
 }

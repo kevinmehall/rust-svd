@@ -10,12 +10,10 @@ use xml::common::Attribute;
 
 #[macro_export]
 macro_rules! deriving_fromxml {
-    (
-        $($(#[$attr:meta])* struct $Id:ident {
-            $($(#[$Flag_field:meta])* $Flag:ident:$T:ty),+,
-        })+
-    ) => {
-        $($(#[$attr])*
+    ($(#[$attr:meta])* struct $Id:ident {
+        $($(#[$Flag_field:meta])* $Flag:ident:$T:ty),+,
+    }) => (
+        $(#[$attr])*
         #[deriving(Default, Show)]
         #[allow(non_snake_case)]
         struct $Id {
@@ -36,8 +34,28 @@ macro_rules! deriving_fromxml {
 
                 Ok(obj)
             }
-        })+
-    };
+        }
+    );
+
+    ($(#[$attr:meta])* enum $Id:ident {
+        $($Variant:ident($($T:ty)+)),+,
+    }) => (
+        $(#[$attr])*
+        #[deriving(Show)]
+        #[allow(non_camel_case_types)]
+        enum $Id {
+            $($Variant($($T,)+),)+
+        }
+
+        impl ::fromxml::FromXml for $Id {
+            fn from_xml(iter:&mut ::fromxml::XmlIter) -> Result<$Id, ()> {
+                match iter.tag_name() {
+                    $(stringify!($Variant) => Ok($Id::$Variant(try!(::fromxml::FromXml::from_xml(iter)))),)+
+                    _ => Err(())
+                }
+            }
+        }
+    )
 }
 
 pub struct XmlIter<'a> {
