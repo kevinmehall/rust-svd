@@ -26,9 +26,6 @@ use syntax::ext::base::{ExtCtxt, ItemModifier, DummyResult, MacResult, MacExpr, 
 use syntax::parse::token;
 use syntax::util::small_vector::SmallVector;
 
-pub mod regs;
-pub mod util;
-
 #[plugin_registrar]
 pub fn plugin_registrar(reg: &mut rustc::plugin::Registry) {
     reg.register_macro("foo", expand);
@@ -51,6 +48,25 @@ fn read_ident<'a>(iter:&mut AstIterator<'a>) -> Result<String, String> {
 		},
 		_ => {
 			Err(format!("expecting identifier"))
+		}
+	}
+}
+
+fn is_brackets(t:Option<&&ast::TokenTree>) -> bool {
+	match t {
+		Some(&&TtDelimited(..)) => true,
+		_ => false,
+	}
+}
+
+fn read_comment<'a>(iter:&mut AstIterator<'a>) -> Result<String, String> {
+	match iter.peek() {
+		Some(&&TtToken(_, Token::DocComment(value))) => {
+			iter.next();
+			Ok(value.to_string())
+		},
+		_ => {
+			Err(format!("expecting comment"))
 		}
 	}
 }
@@ -100,6 +116,7 @@ fn read_int<'a>(iter:&mut AstIterator<'a>) -> Result<int, String> {
 fn is_token(t:&Token, u:&Token) -> bool {
 	match (t, u) {
 		(&Token::FatArrow, &Token::FatArrow) |
+		(&Token::Eq, &Token::Eq) |
 		(&Token::Comma, &Token::Comma) => {
 			true
 		}
@@ -117,19 +134,30 @@ fn read_token<'a>(iter:&mut AstIterator<'a>, t:Token) -> Result<(), String> {
 		}
 		_ => {}
 	}
-	Err(format!("expecting simple token {}", t))
+	Err(format!("expecting simple token {}, got {}", t, iter.peek()))
 }
 
-#[deriving(Show)]
+fn read_ident_match<'a>(iter:&mut AstIterator<'a>, select:&[&str]) -> Result<String, String> {
+	let ident = try!(read_ident(iter));
+	match select.iter().position(|p| &ident.as_slice() == p) {
+		None => Err(format!("unexpected identifier {}", ident)),
+		_ => Ok(ident),
+	}
+}
+
+
+#[deriving(Show, Clone)]
 struct Field {
 	name:String,
 	width:uint,
+	enumerate:Option<Vec<(String, uint)>>
 }
 
-#[deriving(Show)]
+#[deriving(Show, Clone)]
 struct RegisterAst {
 	name:String,
 	fields:VecMap<Field>,
+	width:uint,
 }
 
 fn parse_field<'a>(iter:&mut AstIterator<'a>) -> Result<Field, String> {
@@ -141,16 +169,43 @@ fn parse_field<'a>(iter:&mut AstIterator<'a>) -> Result<Field, String> {
 
 	// println!("{} {} {}", access, subscript, name);
 
+	let mut enumerate = None;
+	if is_brackets(iter.peek()) {
+		let braces = try!(read_brackets(iter));
+		let enumset = &mut read_tree(&*braces);
+		let mut enumvec:Vec<(String, uint)> = vec![];
+		ignore_comments(enumset);
+		while is_ident(enumset.peek()) {
+			let name = try!(read_ident(enumset));
+			try!(read_token(enumset, Token::Eq));
+			let value = try!(read_int(enumset)) as uint;
+			enumvec.push((name, value));
+			match read_token(enumset, Token::Comma) {
+				Ok(..) => (),
+				Err(..) => { break }
+			}
+			ignore_comments(enumset);
+		}
+		if !enumset.is_empty() {
+			return Err("Unexpected content in enum definition".to_string());
+		}
+		enumerate = Some(enumvec);
+	}
+
 	let a = Field {
 		name: name,
 		width: subscript as uint,
+		enumerate: enumerate,
 	};
 
 	return Ok(a);
 }
 
-fn parse_fields<'a>(iter:&mut AstIterator<'a>) -> Result<VecMap<Field>, String> {
+fn parse_fields<'a>(iter:&mut AstIterator<'a>)
+	-> Result<VecMap<Field>, String>
+{
 	let mut out = VecMap::new();
+	ignore_comments(iter);
 	while is_int(iter.peek()) {
 		let pos = try!(read_int(iter)) as uint;
 		try!(read_token(iter, Token::FatArrow));
@@ -159,30 +214,77 @@ fn parse_fields<'a>(iter:&mut AstIterator<'a>) -> Result<VecMap<Field>, String> 
 			Ok(..) => (),
 			Err(..) => { break }
 		}
+		ignore_comments(iter);
 	}
 	Ok(out)
 }
 
-fn read_ident_match<'a>(iter:&mut AstIterator<'a>, select:&[&str]) -> Result<String, String> {
-	let ident = try!(read_ident(iter));
-	match select.iter().position(|p| &ident.as_slice() == p) {
-		None => Err(format!("unexpected identifier {}", ident)),
-		_ => Ok(ident),
-	}
-}
-
-fn parse_reg<'a>(iter:&mut AstIterator<'a>) -> Result<RegisterAst, String> {
-	try!(read_ident_match(iter, &["reg"]));
+fn parse_reg<'a>(iter:&mut AstIterator<'a>)
+	-> Result<RegisterAst, String>
+{
+	let regmap = try!(read_ident_match(iter, &["reg8", "reg16", "reg32"]));
 	let name = try!(read_ident(iter));
 	let delimiter = try!(read_brackets(iter));
 	let sub = &mut read_tree(&*delimiter);
 
 	let fields = try!(parse_fields(sub));
+	if !sub.is_empty() {
+		return Err("Unexpected content in register definition".to_string());
+	}
 	
 	Ok(RegisterAst {
 		name: name,
 		fields: fields,
+		width: match regmap.as_slice() {
+			"reg16" => 2,
+			"reg32" => 4,
+			"reg8" | _ => 1,
+		},
 	})
+}
+
+struct PeripheralAst {
+	name:String,
+	regs:VecMap<RegisterAst>,
+}
+
+fn ignore_comments<'a>(iter:&mut AstIterator<'a>) {
+	while let Ok(..) = read_comment(iter) {
+		continue;
+	}
+}
+
+fn parse_peripheral<'a>(iter:&mut AstIterator<'a>)
+	-> Result<PeripheralAst, String>
+{
+	ignore_comments(iter);
+
+	let regmap = try!(read_ident_match(iter, &["peripheral"]));
+	let name = try!(read_ident(iter));
+	let delimiter = try!(read_brackets(iter));
+	let sub = &mut read_tree(&*delimiter);
+
+	let mut regs = VecMap::new();
+	ignore_comments(sub);
+	while is_int(sub.peek()) {
+		let pos = try!(read_int(sub)) as uint;
+		try!(read_token(sub, Token::FatArrow));
+		regs.insert(pos, try!(parse_reg(sub)));
+		let _ = read_token(sub, token::Comma); // optional
+		ignore_comments(sub);
+	}
+	if !sub.is_empty() {
+		return Err(format!("Unexpected content at end of peripheral definition"));
+	}
+	Ok(PeripheralAst {
+		name: name,
+		regs: regs
+	})
+}
+
+enum StructMatch<'a> {
+	Reg(&'a RegisterAst),
+	Space(uint),
 }
 
 fn expand<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, tokens: &[ast::TokenTree]) -> Box<MacResult + 'a> {
@@ -197,110 +299,263 @@ fn expand<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, tokens: &[ast::TokenTree])
     // }
 
     while !iter.is_empty() {
-	    match parse_reg(&mut iter) {
-	    	Err(err) => cx.span_err(sp, err.as_slice()),
-	    	Ok(reg) => {
-	    		// println!("wow {}", reg);
-	    		let mut const_fields:Vec<ast::TokenTree> = vec![];
-	    		for (pos, field) in reg.fields.iter() {
-					// println!("{}", field);
-					let n = str_to_ident(field.name.as_slice());
-					let width = field.width;
-					const_fields.push_all(quote_tokens!(cx, const $n: ::foo::regs::RegField = ::foo::regs::RegField { width: $width };).as_slice());
-				}
+	    match parse_peripheral(&mut iter) {
+	    	Err(err) => {
+	    		cx.span_err(sp, err.as_slice());
+	    		break;
+	    	},
+	    	Ok(peripheral) => {
+	    		let mut reg_mod:Vec<ast::TokenTree> = vec![];
+	    		let mut reg_structfields:Vec<ast::TokenTree> = vec![];
+	    		let mut reg_defaults:Vec<ast::TokenTree> = vec![];
 
-				let name = str_to_ident(reg.name.as_slice());
-				let name_update = str_to_ident((reg.name + "Update").as_slice());
+	    		// regs.values().map(|a| (*a).clone()).collect()
 
-				let struct_def = quote_tokens!(cx,
+	    		// Create actual register mapping.
+	    		let mut byte_idx:uint = 0;
+	    		let mut regs:Vec<StructMatch> = vec![];
+	    		for (pos, reg) in peripheral.regs.iter() {
+	    			if pos > byte_idx {
+	    				let mut len = pos - byte_idx;
+	    				// space by 32 bytes so we can implement Show()
+	    				while len > 0 {
+	    					let sub_len = if len > 32 { 32 } else { len };
+		    				regs.push(StructMatch::Space(sub_len));
+		    				byte_idx += sub_len;
+		    				len = len - sub_len;
+		    			}
+	    			}
+	    			regs.push(StructMatch::Reg(reg));
+	    			byte_idx += reg.width;
+	    		}
+	    		// regpairs.sort_by(|a, b| a.addressOffset.as_ref().unwrap().cmp(b.addressOffset.as_ref().unwrap()));
+
+	    		let mut reserved_idx:uint = 0;
+	    		for item in regs.iter() {
+	    			let mut reg;
+	    			match item {
+	    				&StructMatch::Space(len) => {
+	    					let idxnum = reserved_idx.to_string();
+	    					let reserved = str_to_ident(vec!["reserved_", idxnum.as_slice()].concat().as_slice());
+	    					reserved_idx += 1;
+	    					reg_structfields.push_all(quote_tokens!(cx, $reserved:[u8, ..$len],).as_slice());
+	    					reg_defaults.push_all(quote_tokens!(cx, $reserved:[0, ..$len],).as_slice());
+	    					continue;
+	    				}
+	    				&StructMatch::Reg(item) => {
+	    					reg = item
+	    				}
+	    			}
+
+		    		// println!("wow {}", reg);
+		    		let mut const_fields:Vec<ast::TokenTree> = vec![];
+		    		for (pos, field) in reg.fields.iter() {
+						// println!("{}", field);
+						let n = str_to_ident(field.name.as_slice());
+						let width = field.width;
+						const_fields.push_all(quote_tokens!(cx, const $n: ::bar::regs::RegField = ::bar::regs::RegField { width: $width };).as_slice());
+					}
+
+					let name = str_to_ident(reg.name.as_slice());
+					let name_update = str_to_ident((reg.name.clone() + "Update").as_slice());
+
+					reg_structfields.push_all(quote_tokens!(cx, pub $name:$name::Reg,).as_slice());
+					reg_defaults.push_all(quote_tokens!(cx, $name: $name ::INIT,).as_slice());
+
+					let r = str_to_ident(match reg.width {
+						4 => "u32",
+						2 => "u16",
+						1 | _ => "u8"
+					});
+
+					let struct_def = quote_tokens!(cx,
 #[deriving(Show, Copy)]
 #[repr(C)]
 pub struct Reg {
-    pub field:u32,
+    pub field:$r,
 }
 
 pub const INIT:Reg = Reg { field: 0 };
 
-				);
+					);
 
-				let struct_update_def = quote_tokens!(cx, 
+					let struct_update_def = quote_tokens!(cx, 
 #[deriving(Show)]
 pub struct Update {
     pub origin:&'static mut Reg,
     pub diff:(uint, uint),
 }
-				);
+					);
 
-				let struct_update_drop = quote_tokens!(cx,
+					let struct_update_drop = quote_tokens!(cx,
 impl Drop for Update {
     fn drop(&mut self) {
         self.origin.modify(self.diff);
     }
 }
-				);
+					);
 
-				let mut fields:Vec<ast::TokenTree> = vec![];
-				for (pos, field) in reg.fields.iter() {
-					let lowerenable = field.name.chars().map(|a| a.to_lowercase()).collect::<String>();
-					let field_name = str_to_ident(field.name.as_slice());
-					let set_field_name = str_to_ident(vec!["set_", lowerenable.as_slice()].concat().as_slice());
-					fields.push_all(quote_tokens!(cx, 
-pub fn $set_field_name (&mut self) -> &mut Update {
+					let struct_set_def = quote_tokens!(cx, 
+#[deriving(Show)]
+pub struct Set {
+    pub origin:&'static mut Reg,
+    pub diff:(uint, uint),
+}
+					);
+
+					let struct_set_drop = quote_tokens!(cx,
+impl Drop for Set {
+    fn drop(&mut self) {
+        self.origin.modify(self.diff);
+    }
+}
+					);
+
+					let mut enum_fields:Vec<ast::TokenTree> = vec![];
+
+					let mut set_fields:Vec<ast::TokenTree> = vec![];
+					let mut update_fields:Vec<ast::TokenTree> = vec![];
+					for (pos, field) in reg.fields.iter() {
+						let lowerenable = field.name.chars().map(|a| a.to_lowercase()).collect::<String>();
+						let field_name = str_to_ident(field.name.as_slice());
+						let set_field_name = str_to_ident(vec!["set_", lowerenable.as_slice()].concat().as_slice());
+						let update_field_name = str_to_ident(vec!["update_", lowerenable.as_slice()].concat().as_slice());
+						let clear_field_name = str_to_ident(vec!["clear_", lowerenable.as_slice()].concat().as_slice());
+						match field.enumerate {
+							None => {
+								update_fields.push_all(quote_tokens!(cx, 
+pub fn $field_name (&mut self, value:uint) -> &mut Update {
+	self.apply($pos, $field_name.update_value(value));
+	self
+}
+								).as_slice());
+								set_fields.push_all(quote_tokens!(cx, 
+pub fn $field_name (&mut self) -> &mut Set {
 	self.apply($pos, $field_name.set());
 	self
 }
-					).as_slice());
-				}
+								).as_slice());
+							},
+							Some(ref choose) => {
+								let field_enum = str_to_ident(vec![field.name.as_slice(), "Enum"].concat().as_slice());
+								let mut enum_opts:Vec<ast::TokenTree> = vec![];
+								for &(ref name, val) in choose.iter() {
+									let name_ident = str_to_ident(name.as_slice());
+									let val = val as int;
+									enum_opts.push_all(quote_tokens!(cx, $name_ident = $val,).as_slice());
+								}
+								enum_fields.push_all(quote_tokens!(cx, 
+#[deriving(Copy)]
+#[allow(non_camel_case_types)] 
+pub enum $field_name {
+	$enum_opts
+}
+								).as_slice());
+								update_fields.push_all(quote_tokens!(cx, 
+pub fn $field_name (&mut self, choice:$field_name) -> &mut Update {
+	self.apply($pos, $field_name.update_value(choice as uint));
+	self
+}
+								).as_slice());
+								set_fields.push_all(quote_tokens!(cx, 
+pub fn $field_name (&mut self, choice:$field_name) -> &mut Set {
+	self.apply($pos, $field_name.set_value(choice as uint));
+	self
+}
+								).as_slice());
+							}
+						}
+					}
 
-				let struct_update_impl = quote_tokens!(cx,
+					let struct_update_impl = quote_tokens!(cx,
 impl Update {
     fn apply(&mut self, pos:uint, diff:(uint, uint)) -> &mut Update {
-        self.diff = ::foo::util::or_tuples(self.diff, ::foo::util::shift_tuple(pos, diff));
+        self.diff = ::bar::util::or_tuples(self.diff, ::bar::util::shift_tuple(pos, diff));
         self
     }
 
-    $fields
+    $update_fields
 }
-				);
+					);
+					let struct_set_impl = quote_tokens!(cx,
+impl Set {
+    fn apply(&mut self, pos:uint, diff:(uint, uint)) -> &mut Set {
+        self.diff = ::bar::util::or_tuples(self.diff, ::bar::util::shift_tuple(pos, diff));
+        self
+    }
 
-				let struct_impl = quote_tokens!(cx,
+    $set_fields
+}
+					);
+
+					let struct_impl = quote_tokens!(cx,
 impl Reg {
     pub fn update(&'static mut self) -> Update {
         Update { origin: self, diff: (0, 0) }
+    }
+
+    pub fn write(&'static mut self) -> Set {
+        Set { origin: self, diff: (0, 0) }
     }
 
     pub fn modify(&mut self, diff: (uint, uint)) {
         let (c, s) = diff;
         if c != 0 {
             unsafe {
-                let val = volatile_load(&self.field as *const u32);
-                volatile_store(&mut self.field as *mut u32, val & !(c as u32) | (s as u32));
+                let val = volatile_load(&self.field as *const $r);
+                volatile_store(&mut self.field as *mut $r, val & !(c as $r) | (s as $r));
             }
         } else {
             unsafe {
-                volatile_store(&mut self.field as *mut u32, s as u32);
+                volatile_store(&mut self.field as *mut $r, s as $r);
             }
         }
     }
 }
-				);
+					);
 
-				result.push(quote_item!(cx, 
+					reg_mod.push_all(quote_tokens!(cx, 
 #[allow(non_snake_case)]
 pub mod $name {
-	extern crate foo;
+	extern crate bar;
 
 	use std::intrinsics::{volatile_load, volatile_store};
 
 	$const_fields
+	$enum_fields
 	$struct_def
 	$struct_impl
 	$struct_update_def
 	$struct_update_drop
 	$struct_update_impl
+	$struct_set_def
+	$struct_set_drop
+	$struct_set_impl
 }
-).unwrap());
-	    	},
+					).as_slice());
+	    		}
+
+				let peripheral_name = str_to_ident(peripheral.name.as_slice());
+				let peripheral_struct = quote_tokens!(cx,
+#[allow(non_snake_case)]
+pub mod $peripheral_name {
+	#[deriving(Copy, Show)]
+	#[allow(non_snake_case)]
+	#[repr(C)]
+	pub struct Peripheral {
+		$reg_structfields
+	}
+
+	pub const INIT:Peripheral = Peripheral {
+		$reg_defaults
+	};
+	$reg_mod
+}
+				);
+				result.push(quote_item!(cx, 
+$peripheral_struct
+				).unwrap());
+	    	}
 	    }
 	}
 

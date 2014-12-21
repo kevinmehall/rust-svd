@@ -6,3 +6,6 @@ authors = ["Tim Cameron Ryan <id@timryan.org>"]
 
 [dependencies.foo]
 path = "foo/"
+
+[dependencies.bar]
+path = "bar/"
