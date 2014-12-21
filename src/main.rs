@@ -66,13 +66,26 @@ deriving_fromxml! {
     }
 }
 
-deriving_fromxml! {
-    struct Cluster {
-        name: String,
-        registers: Vec<Register>,
-    }
+#[deriving(Default, Show)]
+struct Cluster {
+    name: String,
+    registers: Vec<Register>,
 }
 
+impl ::fromxml::FromXml for Cluster {
+    fn from_xml(iter: &mut ::fromxml::XmlIter) -> Result<Cluster, ()> {
+        let mut obj = Cluster{..Default::default()};
+        try!(iter.each_child(|iter| {
+            match iter.tag_name() {
+                    "name" => obj.name = try!(::fromxml::FromXml::from_xml(iter)),
+                    "register" => obj.registers.push(try!(::fromxml::FromXml::from_xml(iter))),
+                    _ => try!(iter.skip_node())
+            }
+            Ok(())
+        }));
+        Ok(obj)
+    }
+}
 
 deriving_fromxml! {
     struct Field {
@@ -121,24 +134,34 @@ fn write_device(device: &Device) {
 }
 
 fn write_peripheral(peripheral: &Peripheral) {
-    /*let mut registers: Vec<_> = peripheral.registers.iter().collect();
-
-    registers.as_mut_slice().sort_by(|a, b| {
-        let a = a.addressOffset.as_ref().map(|x| parse_num(x.as_slice()));
-        let b = b.addressOffset.as_ref().map(|x| parse_num(x.as_slice()));
-        a.cmp(&b)
-    });*/
+    let mut registers = vec![];
 
     println!("ioregs!({} = {{", peripheral.name);
     for register in peripheral.registers.iter() {
         match *register {
-            Regs::register(ref r) => write_register(r),
+            Regs::register(ref r) => registers.push(r),
             Regs::cluster(ref c) => {
+                let mut cluster_regs: Vec<_> = c.registers.iter().collect();
+
                 println!("    // cluster: {}", c.name);
+                write_registers(&mut *cluster_regs);
             }
         }
     }
+    write_registers(&mut *registers);
     println!("}}")
+}
+
+fn write_registers(registers: &mut[&Register]) {
+    registers.as_mut_slice().sort_by(|a, b| {
+        let a = a.addressOffset.as_ref().map(|x| parse_num(x.as_slice()));
+        let b = b.addressOffset.as_ref().map(|x| parse_num(x.as_slice()));
+        a.cmp(&b)
+    });
+
+    for &r in registers.iter() {
+        write_register(r);
+    }
 }
 
 fn write_register(register: &Register) {
