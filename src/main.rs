@@ -168,6 +168,7 @@ peripheral WDT2 {
 static mut wdt: WDT::Peripheral = WDT::INIT;
 static mut wdt2: WDT2::Peripheral = WDT2::INIT;
 
+
 #[test]
 fn wdt_changes() {
     unsafe {
