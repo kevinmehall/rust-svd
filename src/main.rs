@@ -168,6 +168,18 @@ peripheral WDT2 {
 static mut wdt: WDT::Peripheral = WDT::INIT;
 static mut wdt2: WDT2::Peripheral = WDT2::INIT;
 
+#[test]
+fn wdt_changes() {
+    unsafe {
+        wdt2.CONFIG.write()
+            .WINDOW(WDT2::CONFIG::WINDOW::USE_16384_CLOCK_CYCLES)
+            .PER(WDT2::CONFIG::PER::USE_16384_CLOCK_CYCLES);
+        wdt2.CONFIG.update()
+            .PER(WDT2::CONFIG::PER::USE_16384_CLOCK_CYCLES);
+        assert_eq!(wdt2.CONFIG.field, 187);
+    }
+}
+
 #[no_mangle]
 #[inline(never)]
 extern "C" fn jeepers() {

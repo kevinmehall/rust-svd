@@ -139,7 +139,7 @@ fn read_ident_match<'a>(iter:&mut AstIterator<'a>, select:&[&str]) -> Result<Str
 
 
 #[deriving(Show, Clone)]
-struct Field {
+struct FieldAst {
 	name:String,
 	width:uint,
 	enumerate:Option<Vec<(String, uint)>>
@@ -148,11 +148,11 @@ struct Field {
 #[deriving(Show, Clone)]
 struct RegisterAst {
 	name:String,
-	fields:VecMap<Field>,
+	fields:VecMap<FieldAst>,
 	width:uint,
 }
 
-fn parse_field<'a>(iter:&mut AstIterator<'a>) -> Result<Field, String> {
+fn parse_field<'a>(iter:&mut AstIterator<'a>) -> Result<FieldAst, String> {
 	let access = try!(read_ident_match(iter, &["rw", "r", "w"]));
 	let delimiter = try!(read_brackets(iter));
 	let sub = &mut read_tree(&*delimiter);
@@ -184,7 +184,7 @@ fn parse_field<'a>(iter:&mut AstIterator<'a>) -> Result<Field, String> {
 		enumerate = Some(enumvec);
 	}
 
-	let a = Field {
+	let a = FieldAst {
 		name: name,
 		width: subscript as uint,
 		enumerate: enumerate,
@@ -194,7 +194,7 @@ fn parse_field<'a>(iter:&mut AstIterator<'a>) -> Result<Field, String> {
 }
 
 fn parse_fields<'a>(iter:&mut AstIterator<'a>)
-	-> Result<VecMap<Field>, String>
+	-> Result<VecMap<FieldAst>, String>
 {
 	let mut out = VecMap::new();
 	ignore_comments(iter);
@@ -322,10 +322,8 @@ fn output_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:PeripheralAst) -> Vec<a
 			}
 		}
 
-		// println!("wow {}", reg);
 		let mut const_fields:Vec<ast::TokenTree> = vec![];
 		for (pos, field) in reg.fields.iter() {
-			// println!("{}", field);
 			let n = str_to_ident(field.name.as_slice());
 			let width = field.width;
 			const_fields.push_all(quote_tokens!(cx, const $n: ::bar::regs::RegField = ::bar::regs::RegField { width: $width };).as_slice());
@@ -523,6 +521,7 @@ fn output_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:PeripheralAst) -> Vec<a
 			pub const INIT:Peripheral = Peripheral {
 				$reg_defaults
 			};
+
 			$reg_mod
 		}
 	);
