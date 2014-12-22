@@ -149,7 +149,7 @@ fn write_peripheral(peripheral: &Peripheral) {
         }
     }
     write_registers(&mut *registers);
-    println!("}}")
+    println!("}})")
 }
 
 fn write_registers(registers: &mut[&Register]) {
@@ -204,7 +204,7 @@ fn write_field(field: &Field) {
     if field.enumeratedValues.len() != 0 {
         for en in field.enumeratedValues.iter() {
             if en.name.len() == 0 { continue } // TODO: this is a <name>, not an <enumeratedValues>
-            print!("             {} => {}", en.name, en.value);
+            print!("             {} => {},", en.value, en.name);
             write_doc_comment(en.description.as_ref());
             print!("\n");
         }
