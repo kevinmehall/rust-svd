@@ -9,3 +9,6 @@ path = "foo/"
 
 [dependencies.bar]
 path = "bar/"
+
+[dependencies.svd]
+path = "svd/"

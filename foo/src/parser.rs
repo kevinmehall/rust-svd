@@ -1,3 +1,5 @@
+//! Peripheral macro parser into AST.
+
 #![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
@@ -16,26 +18,7 @@ use syntax::parse::token;
 use syntax::util::small_vector::SmallVector;
 
 use reader::{Reader, TreeUnpack};
-
-#[deriving(Show, Clone)]
-pub struct PeripheralAst {
-	pub name:String,
-	pub regs:VecMap<RegisterAst>,
-}
-
-#[deriving(Show, Clone)]
-pub struct FieldAst {
-	pub name:String,
-	pub width:uint,
-	pub enumerate:Option<Vec<(String, uint)>>
-}
-
-#[deriving(Show, Clone)]
-pub struct RegisterAst {
-	pub name:String,
-	pub fields:VecMap<FieldAst>,
-	pub width:uint,
-}
+use ast::*;
 
 // Temporary placement for comment parsing.
 pub fn ignore_comments<'a>(reader:&mut Reader<'a>) {
@@ -70,7 +53,7 @@ pub fn parse_field<'a>(reader:&mut Reader<'a>)
 			}
 			ignore_comments(enumset);
 		}
-		if !enumset.iter.is_empty() {
+		if !enumset.is_done() {
 			return Err("Unexpected content in enum definition".to_string());
 		}
 		enumerate = Some(enumvec);
@@ -111,7 +94,7 @@ pub fn parse_reg<'a>(reader:&mut Reader<'a>)
 	let sub = &mut _sub.unpack_tree();
 
 	let fields = try!(parse_fields(sub));
-	if !sub.iter.is_empty() {
+	if !sub.is_done() {
 		return Err("Unexpected content in register definition".to_string());
 	}
 	
@@ -145,7 +128,7 @@ pub fn parse_peripheral<'a>(reader:&mut Reader<'a>)
 		let _ = sub.read_token(token::Comma); // optional
 		ignore_comments(sub);
 	}
-	if !sub.iter.is_empty() {
+	if !sub.is_done() {
 		return Err(format!("Unexpected content at end of peripheral definition"));
 	}
 

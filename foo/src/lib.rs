@@ -1,3 +1,5 @@
+//! Peripheral macro.
+
 #![feature(phase, plugin_registrar, macro_rules, quote)]
 #![feature(globs)]
 
@@ -7,19 +9,21 @@
 extern crate syntax;
 extern crate rustc;
 
-use syntax::ast;
 use syntax::ptr::P;
 use syntax::codemap;
 use syntax::ext::base::{ExtCtxt, MacResult, MacItems};
 use syntax::util::small_vector::SmallVector;
+use syntax::parse::token::Token;
 
+use ast::PeripheralAst;
 use reader::Reader;
 use parser::*;
 use generator::*;
 
-mod reader;
-mod parser;
-mod generator;
+pub mod ast;
+pub mod reader;
+pub mod parser;
+pub mod generator;
 
 #[plugin_registrar]
 pub fn plugin_registrar(reg: &mut rustc::plugin::Registry) {
@@ -27,43 +31,59 @@ pub fn plugin_registrar(reg: &mut rustc::plugin::Registry) {
 }
 
 fn generate_peripherals<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, reader:&mut Reader<'a>)
-  -> Result<Vec<P<ast::Item>>, String>
+  -> Result<Vec<P<syntax::ast::Item>>, String>
 {
 	let mut result = vec![];
-    while !reader.iter.is_empty() {
+
+    let mut systems:Vec<String> = vec![];
+    while let Ok(..) = reader.read_ident_match(&["system"]) {
+        systems.push(try!(reader.read_ident()));
+        try!(reader.read_token(Token::Semi));
+    }
+
+    let mut peripherals:Vec<PeripheralAst> = vec![];
+    while !reader.is_done() {
 	    match parse_peripheral(reader) {
 	    	Err(err) => {
 	    		cx.span_err(sp, err.as_slice());
 	    		break;
 	    	},
 	    	Ok(peripheral) => {
-	    		let tokens = generate_peripheral(cx, peripheral);
-	    		result.push(quote_item!(cx, $tokens).unwrap());
+                peripherals.push(peripheral);
 	    	}
 	    }
 	}
 
-	if !reader.iter.is_empty() {
+    for p in peripherals.iter() {
+        let tokens = generate_peripheral(cx, p);
+        result.push(quote_item!(cx, $tokens).unwrap());
+    }
+
+    // Generate systems.
+    for sys in systems.into_iter() {
+        result.push_all(generate_system(cx, sys, &peripherals).as_slice());
+    }
+
+	if !reader.is_done() {
     	Err(format!("unexpected content at end of macro"))
 	} else {
 		Ok(result)
 	}
 }
 
-fn regs_macro<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, tokens: &[ast::TokenTree])
+fn regs_macro<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, tokens: &[syntax::ast::TokenTree])
   -> Box<MacResult + 'a>
 {
     // for i in tokens.iter() {
     // 	println!("{}", i);
     // }
 
-    match generate_peripherals(cx, sp, &mut Reader::new(tokens)) {
-    	Ok(results) => {
-    		MacItems::new(SmallVector::many(results).into_iter())
-    	},
+    let results = match generate_peripherals(cx, sp, &mut Reader::new(tokens)) {
+    	Ok(results) => results,
     	Err(err) => {
     		cx.span_err(sp, err.as_slice());
-    		MacItems::new(SmallVector::many(vec![]).into_iter())
+            vec![]
     	}
-    }
+    };
+    MacItems::new(SmallVector::many(results).into_iter())
 }

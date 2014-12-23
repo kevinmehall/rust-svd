@@ -1,3 +1,5 @@
+//! Generic AST reader.
+
 #![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
@@ -9,7 +11,6 @@ use std::iter::Peekable;
 use std::slice::Items;
 use std::rc::Rc;
 use std::num::{FromStrRadix};
-use std::collections::VecMap;
 use std::iter::Map;
 
 use syntax::ast;
@@ -49,7 +50,7 @@ fn is_token(t:&Token, u:&Token) -> bool {
 }
 
 pub struct Reader<'a> {
-	pub iter: Peekable<&'a ast::TokenTree, Items<'a, ast::TokenTree>>,
+	iter: Peekable<&'a ast::TokenTree, Items<'a, ast::TokenTree>>,
 }
 
 impl<'a> Reader<'a> {
@@ -57,6 +58,10 @@ impl<'a> Reader<'a> {
 		Reader {
 			iter: tokens.iter().peekable()
 		}
+	}
+
+	pub fn is_done(&mut self) -> bool {
+		self.iter.is_empty()
 	}
 
 	pub fn read_comment(&mut self) -> Result<String, String> {
@@ -88,10 +93,19 @@ impl<'a> Reader<'a> {
 	}
 
 	pub fn read_ident_match(&mut self, select:&[&str]) -> Result<String, String> {
-		let ident = try!(self.read_ident());
-		match select.iter().position(|p| &ident.as_slice() == p) {
-			None => Err(format!("unexpected identifier {}", ident)),
-			_ => Ok(ident),
+		match self.iter.peek() {
+			Some(&&TtToken(_, Token::Ident(value, kind))) => {
+				match select.iter().position(|p| &value.as_str().as_slice() == p) {
+					None => Err(format!("unexpected identifier {}", value)),
+					_ => {
+						self.iter.next();
+						Ok(value.as_str().to_string())
+					}
+				}
+			},
+			_ => {
+				Err(format!("expecting identifier"))
+			}
 		}
 	}
 

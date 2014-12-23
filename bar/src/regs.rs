@@ -24,4 +24,8 @@ impl RegField {
     pub fn update_value(&self, value:uint) -> (uint, uint) {
         (spread(self.width), spread(self.width) & value)
     }
+
+    pub fn read(&self, value:uint) -> uint {
+        spread(self.width) & value
+    }
 }
