@@ -6,7 +6,7 @@ use std::str::FromStr;
 use xml::reader::Events;
 use xml::reader::events::XmlEvent;
 use xml::reader::events::XmlEvent::*;
-use xml::common::Attribute;
+use xml::attribute::OwnedAttribute;
 
 #[macro_export]
 macro_rules! deriving_fromxml {
@@ -60,7 +60,7 @@ macro_rules! deriving_fromxml {
 
 pub struct XmlIter<'a> {
     iter: Events<'a, BufferedReader<File>>,
-    stack: Vec<(String, Vec<Attribute>)>,
+    stack: Vec<(String, Vec<OwnedAttribute>)>,
 }
 
 impl<'a> Iterator<XmlEvent> for XmlIter<'a> {
@@ -106,7 +106,7 @@ impl<'a> XmlIter<'a> {
         self.stack.last().unwrap().0.as_slice()
     }
 
-    pub fn attributes(&self) -> &[Attribute] {
+    pub fn attributes(&self) -> &[OwnedAttribute] {
         self.stack.last().unwrap().1.as_slice()
     }
 
@@ -138,7 +138,7 @@ impl<'a> XmlIter<'a> {
 
     pub fn inner_text(&mut self) -> Result<String, XmlError> {
         let depth = self.stack.len();
-        let mut s = "".into_string();
+        let mut s = "".to_string();
         while self.stack.len() >= depth {
             match self.next() {
                 Some(Characters(text)) => s.push_str(text.as_slice()),
@@ -181,6 +181,6 @@ impl<T:FromXml> FromXml for Option<T> {
 impl<T> FromXml for T where T: FromStr {
     fn from_xml(iter: &mut XmlIter) -> Result<T, XmlError> {
         let s = try!(iter.inner_text());
-        from_str(s.as_slice()).ok_or(())
+        s.parse().ok_or(())
     }
 }

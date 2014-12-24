@@ -149,7 +149,7 @@ fn write_peripheral(peripheral: &Peripheral) {
         }
     }
     write_registers(&mut *registers);
-    println!("}})")
+    println!("}});")
 }
 
 fn write_registers(registers: &mut[&Register]) {
