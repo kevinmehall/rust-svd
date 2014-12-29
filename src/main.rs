@@ -93,6 +93,7 @@ deriving_fromxml! {
         description:Option<String>,
         bitOffset:Option<uint>,
         bitWidth:Option<uint>,
+        bitRange:Option<String>,
         access:Option<String>,
         enumeratedValues: Vec<EnumeratedValue>,
     }
@@ -181,8 +182,17 @@ fn write_register(register: &Register) {
 }
 
 fn write_field(field: &Field) {
-    let lsb = field.bitOffset.unwrap();
-    let width = field.bitWidth.unwrap();
+    if field.name == "RESERVED" { return }
+
+    let (lsb, width) = if let Some(ref br) = field.bitRange {
+        let split: Vec<&str> = br.as_slice().split(':').collect();
+        assert_eq!(split.len(), 2);
+        let end: uint = split[0].slice_from(1).parse().unwrap();
+        let start: uint = split[1].slice_to(split[1].len()-1).parse().unwrap();
+        (start, end-start+1)
+    } else {
+        (field.bitOffset.unwrap(), field.bitWidth.unwrap())
+    };
 
     print!("         {}", lsb);
 
