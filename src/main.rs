@@ -183,6 +183,7 @@ fn write_register(register: &Register) {
 fn write_field(field: &Field) {
     let lsb = field.bitOffset.unwrap();
     let width = field.bitWidth.unwrap();
+    if field.name == "RESERVED" { return }
 
     print!("         {}", lsb);
 
