@@ -223,7 +223,9 @@ fn write_field(field: &Field) {
 }
 
 fn main() {
-    let file = File::open(&Path::new("file.xml")).unwrap();
+    let args = std::os::args();
+    let filename = args.get(1).expect("No SVD filename provided");
+    let file = File::open(&Path::new(filename)).unwrap();
     let reader = BufferedReader::new(file);
 
     let mut parser = EventReader::new(reader);
