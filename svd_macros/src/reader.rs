@@ -8,7 +8,7 @@ extern crate syntax;
 extern crate rustc;
 
 use std::iter::Peekable;
-use std::slice::Items;
+use std::slice::Iter;
 use std::rc::Rc;
 use std::num::{FromStrRadix};
 use std::iter::Map;
@@ -50,7 +50,7 @@ fn is_token(t:&Token, u:&Token) -> bool {
 }
 
 pub struct Reader<'a> {
-	iter: Peekable<&'a ast::TokenTree, Items<'a, ast::TokenTree>>,
+	iter: Peekable<&'a ast::TokenTree, Iter<'a, ast::TokenTree>>,
 }
 
 impl<'a> Reader<'a> {
@@ -136,7 +136,7 @@ impl<'a> Reader<'a> {
 				match if value.as_str().contains_char('x') {
 	                FromStrRadix::from_str_radix(value.as_str().slice_from(2), 16)
 	            } else {
-	                from_str(value.as_str())
+	                value.as_str().parse()
 	            } {
 					Some(value) => Ok(value),
 					None => Err(format!("invalid integer")),

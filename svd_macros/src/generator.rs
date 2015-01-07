@@ -7,6 +7,9 @@
 extern crate syntax;
 extern crate rustc;
 
+use std::collections::VecMap;
+use std::borrow::ToOwned;
+
 use syntax::ast;
 use syntax::ptr;
 use syntax::parse::token::{str_to_ident};
@@ -21,15 +24,18 @@ enum StructMatch<'a> {
 	Space(uint),
 }
 
-pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -> Vec<ast::TokenTree> {
+fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
+	-> (Vec<ast::TokenTree>, Vec<ast::TokenTree>, Vec<ast::TokenTree>, Vec<ast::TokenTree>)
+{
 	let mut reg_mod:Vec<ast::TokenTree> = vec![];
 	let mut reg_structfields:Vec<ast::TokenTree> = vec![];
+	let mut reg_impl:Vec<ast::TokenTree> = vec![];
 	let mut reg_defaults:Vec<ast::TokenTree> = vec![];
 
 	// Create actual register mapping.
 	let mut byte_idx:uint = 0;
 	let mut regs:Vec<StructMatch> = vec![];
-	for (pos, reg) in peripheral.regs.iter() {
+	for (pos, reg) in regmap.iter() {
 		if pos > byte_idx {
 			let mut len = pos - byte_idx;
 			// space by 32 bytes so we can implement Show()
@@ -41,6 +47,7 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 				len = len - sub_len;
 			}
 		}
+
 		regs.push(StructMatch::Reg(reg));
 		byte_idx += reg.width;
 	}
@@ -52,10 +59,10 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 		match item {
 			&StructMatch::Space(len) => {
 				let idxnum = reserved_idx.to_string();
-				let reserved = str_to_ident(vec!["reserved_", idxnum.as_slice()].concat().as_slice());
+				let reserved = str_to_ident(vec!["reserved_".to_owned(), idxnum].concat().as_slice());
 				reserved_idx += 1;
-				reg_structfields.push_all(quote_tokens!(cx, $reserved:[u8, ..$len],).as_slice());
-				reg_defaults.push_all(quote_tokens!(cx, $reserved:[0, ..$len],).as_slice());
+				reg_structfields.push_all(quote_tokens!(cx, $reserved:[u8; $len],).as_slice());
+				reg_defaults.push_all(quote_tokens!(cx, $reserved:[0; $len],).as_slice());
 				continue;
 			}
 			&StructMatch::Reg(item) => {
@@ -67,7 +74,7 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 		for (pos, field) in reg.fields.iter() {
 			let n = str_to_ident(field.name.as_slice());
 			let width = field.width;
-			const_fields.push_all(quote_tokens!(cx, const $n: ::bar::regs::RegField = ::bar::regs::RegField { width: $width };).as_slice());
+			const_fields.push_all(quote_tokens!(cx, const $n: ::svd::regs::RegField = ::svd::regs::RegField { width: $width };).as_slice());
 		}
 
 		let name = str_to_ident(reg.name.as_slice());
@@ -88,6 +95,9 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 				pub field:UnsafeCell<$r>,
 			}
 
+			unsafe impl Sync for Reg {
+			}
+
 			pub const INIT:Reg = Reg { field: UnsafeCell { value: 0 } };
 		);
 
@@ -96,34 +106,50 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 		let mut update_fields:Vec<ast::TokenTree> = vec![];
 		let mut read_fields:Vec<ast::TokenTree> = vec![];
 
+		// Dimension
+		if let Some((dim, dim_incr)) = reg.dim {
+			let namematch = str_to_ident(vec!["of_".to_owned(), reg.name.to_owned()].concat().as_slice());
+			reg_impl.push_all(quote_tokens!(cx,
+				#[inline(always)]
+				pub fn $namematch (&self, i:u32) -> &'static $name::Reg {
+	  				unsafe {
+	    				&*((&self.$name as *const _).offset((($dim_incr/4) * i) as int))
+	  				}
+				}
+			).as_slice());
+		}
+
 		for (pos, field) in reg.fields.iter() {
 			let lowerenable = field.name.chars().map(|a| a.to_lowercase()).collect::<String>();
 			let field_name = str_to_ident(field.name.as_slice());
-			let set_field_name = str_to_ident(vec!["set_", lowerenable.as_slice()].concat().as_slice());
-			let update_field_name = str_to_ident(vec!["update_", lowerenable.as_slice()].concat().as_slice());
-			let clear_field_name = str_to_ident(vec!["clear_", lowerenable.as_slice()].concat().as_slice());
+			let set_field_name = str_to_ident(vec!["set_".to_owned(), lowerenable.clone()].concat().as_slice());
+			let update_field_name = str_to_ident(vec!["update_".to_owned(), lowerenable.clone()].concat().as_slice());
+			let clear_field_name = str_to_ident(vec!["clear_".to_owned(), lowerenable.clone()].concat().as_slice());
 			match field.enumerate {
 				None => {
 					update_fields.push_all(quote_tokens!(cx, 
+						#[inline(always)]
 						pub fn $field_name (&mut self, value:uint) -> &mut Update {
 							self.apply($pos, $field_name.update_value(value));
 							self
 						}
 					).as_slice());
 					set_fields.push_all(quote_tokens!(cx, 
-						pub fn $field_name (&mut self) -> &mut Set {
-							self.apply($pos, $field_name.set());
+						#[inline(always)]
+						pub fn $field_name (&mut self, value:uint) -> &mut Set {
+							self.apply($pos, $field_name.set_value(value));
 							self
 						}
 					).as_slice());
 					read_fields.push_all(quote_tokens!(cx,
+						#[inline(always)]
 						pub fn $field_name (&self) -> uint {
 							$field_name.read(self.value as uint >> $pos)
 						}
 					).as_slice());
 				},
 				Some(ref choose) => {
-					let field_enum = str_to_ident(vec![field.name.as_slice(), "Enum"].concat().as_slice());
+					let field_enum = str_to_ident(vec![field.name.clone(), "Enum".to_owned()].concat().as_slice());
 					let mut enum_opts:Vec<ast::TokenTree> = vec![];
 					for &(ref name, val) in choose.iter() {
 						let name_ident = str_to_ident(name.as_slice());
@@ -131,27 +157,30 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 						enum_opts.push_all(quote_tokens!(cx, $name_ident = $val,).as_slice());
 					}
 					enum_fields.push_all(quote_tokens!(cx, 
-						#[deriving(Copy, Show, PartialEq, FromPrimitive)]
+						#[derive(Copy, PartialEq, FromPrimitive)]
 						#[allow(non_camel_case_types)] 
 						pub enum $field_name {
 							$enum_opts
 						}
 					).as_slice());
 					update_fields.push_all(quote_tokens!(cx, 
+						#[inline(always)]
 						pub fn $field_name (&mut self, choice:$field_name) -> &mut Update {
 							self.apply($pos, $field_name.update_value(choice as uint));
 							self
 						}
 					).as_slice());
 					set_fields.push_all(quote_tokens!(cx, 
+						#[inline(always)]
 						pub fn $field_name (&mut self, choice:$field_name) -> &mut Set {
 							self.apply($pos, $field_name.set_value(choice as uint));
 							self
 						}
 					).as_slice());
 					read_fields.push_all(quote_tokens!(cx,
+						#[inline(always)]
 						pub fn $field_name (&self) -> Option<$field_name> {
-							FromPrimitive::from_uint($field_name.read(self.value as uint >> $pos))
+							::std::num::FromPrimitive::from_uint($field_name.read(self.value as uint >> $pos))
 						}
 					).as_slice());
 				}
@@ -165,14 +194,16 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 			}
 
 			impl Drop for Update {
+				#[inline(always)]
 				fn drop(&mut self) {
 					self.origin.modify(self.diff);
 				}
 			}
 
 			impl Update {
+				#[inline(always)]
 				fn apply(&mut self, pos:uint, diff:(uint, uint)) -> &mut Update {
-					self.diff = ::bar::util::or_tuples(self.diff, ::bar::util::shift_tuple(pos, diff));
+					self.diff = ::svd::util::or_tuples(self.diff, ::svd::util::shift_tuple(pos, diff));
 					self
 				}
 
@@ -187,14 +218,16 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 			}
 
 			impl Drop for Set {
+				#[inline(always)]
 				fn drop(&mut self) {
 					self.origin.modify(self.diff);
 				}
 			}
 			
 			impl Set {
+				#[inline(always)]
 				fn apply(&mut self, pos:uint, diff:(uint, uint)) -> &mut Set {
-					self.diff = ::bar::util::or_tuples(self.diff, ::bar::util::shift_tuple(pos, diff));
+					self.diff = ::svd::util::or_tuples(self.diff, ::svd::util::shift_tuple(pos, diff));
 					self
 				}
 
@@ -203,7 +236,7 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 		);
 
 		let def_read = quote_tokens!(cx, 
-			#[deriving(Copy)]
+			#[derive(Copy)]
 			pub struct Read {
 				pub value:$r,
 			}
@@ -215,14 +248,17 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 
 		let struct_impl = quote_tokens!(cx,
 			impl Reg {
+				#[inline(always)]
 				pub fn update(&'static self) -> Update {
 					Update { origin: self, diff: (0, 0) }
 				}
 
+				#[inline(always)]
 				pub fn write(&'static self) -> Set {
 					Set { origin: self, diff: (0, 0) }
 				}				
 
+				#[inline(always)]
 				pub fn modify(&self, diff: (uint, uint)) {
 					let (c, s) = diff;
 					if c != 0 {
@@ -237,6 +273,7 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 					}
 				}
 
+				#[inline(always)]
 				pub fn read(&self) -> Read {
 					unsafe {
 					    let val = volatile_load(self.field.get() as *const $r);
@@ -249,8 +286,9 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 		reg_mod.push_all(quote_tokens!(cx, 
 			#[allow(non_snake_case)]
 			pub mod $name {
-				extern crate bar;
+				extern crate svd;
 
+				use std::prelude::*;
 				use std::intrinsics::{volatile_load, volatile_store};
 				use std::cell::UnsafeCell;
 
@@ -265,15 +303,86 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 		).as_slice());
 	}
 
+	(reg_mod, reg_structfields, reg_impl, reg_defaults)
+}
+
+
+fn generate_peripheral_cluster<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst, clusters:&Vec<Cluster>) -> Vec<ast::TokenTree> {
+	let mut cluster_structs = vec![];
+	let mut clusters_tokens = vec![];
+
+	for cluster in clusters.iter() {
+		let (reg_mod, reg_structfields, reg_impl, reg_defaults) = generate_regdefs(cx, &cluster.registers);
+		let cluster_name = str_to_ident(cluster.name.as_slice());
+
+		cluster_structs.push_all(quote_tokens!(cx,
+			#[allow(non_snake_case)]
+			pub mod $cluster_name {
+				use std::ptr::PtrExt;
+
+				#[allow(non_snake_case)]
+				#[repr(C)]
+				pub struct Cluster {
+					$reg_structfields
+				}
+
+				impl Cluster {
+					$reg_impl
+				}
+
+				pub const INIT:Cluster = Cluster {
+					$reg_defaults
+				};
+
+				$reg_mod
+			}
+		).as_slice());
+
+		clusters_tokens.push_all(quote_tokens!(cx, 
+			pub $cluster_name: &'static $cluster_name::Cluster,
+		).as_slice());
+	}
+
 	// Generate peripheral module.
 	let peripheral_name = str_to_ident(peripheral.name.as_slice());
-	return quote_tokens!(cx,
+	quote_tokens!(cx,
 		#[allow(non_snake_case)]
+		#[allow(unused_imports)]
+		#[allow(dead_code)]
 		pub mod $peripheral_name {
+			use std::ptr::PtrExt;
+
+			$cluster_structs
+
+			#[allow(non_snake_case)]
+			#[derive(Copy)]
+			pub struct Clusters {
+				$clusters_tokens
+			}
+		}
+	)
+}
+
+fn generate_peripheral_registers<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst, registers:&VecMap<RegisterAst>) -> Vec<ast::TokenTree> {
+	let (reg_mod, reg_structfields, reg_impl, reg_defaults) = generate_regdefs(cx, registers);
+
+	// Generate peripheral module.
+	let peripheral_name = str_to_ident(peripheral.name.as_slice());
+	quote_tokens!(cx,
+		#[allow(non_snake_case)]
+		#[allow(unused_imports)]
+		#[allow(dead_code)]
+		pub mod $peripheral_name {
+			use std::ptr::PtrExt;
+
 			#[allow(non_snake_case)]
 			#[repr(C)]
 			pub struct Peripheral {
 				$reg_structfields
+			}
+
+			impl Peripheral {
+				$reg_impl
 			}
 
 			pub const INIT:Peripheral = Peripheral {
@@ -282,7 +391,18 @@ pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -
 
 			$reg_mod
 		}
-	);
+	)
+}
+
+pub fn generate_peripheral<'a>(cx: &'a mut ExtCtxt, peripheral:&PeripheralAst) -> Vec<ast::TokenTree> {
+	match peripheral.regs {
+		RegList::Registers(ref registers) => {
+			generate_peripheral_registers(cx, peripheral, registers)
+		},
+		RegList::Cluster(ref clusters) => {
+			generate_peripheral_cluster(cx, peripheral, clusters)
+		}
+	}
 }
 
 pub fn generate_system<'a>(cx: &'a mut ExtCtxt, name:String, peripherals:&Vec<PeripheralAst>)
@@ -293,11 +413,60 @@ pub fn generate_system<'a>(cx: &'a mut ExtCtxt, name:String, peripherals:&Vec<Pe
 	let mut fields_init = vec![];
 
 	for p in peripherals.iter() {
-		let pname = str_to_ident(vec![name.as_slice(), "_", p.name.as_slice()].concat().as_slice());
-		let name = str_to_ident(p.name.as_slice());
-		fields_extern.push(quote_tokens!(cx, static $pname: $name::Peripheral; ));
-		fields_system.push(quote_tokens!(cx, pub $name: &'static $name::Peripheral,));
-		fields_init.push(quote_tokens!(cx, $name: &$pname, ));
+		let pname_const = str_to_ident(vec![name.clone(), "_".to_owned(), p.name.clone()].concat().as_slice());
+		let pname = str_to_ident(p.name.as_slice());
+
+		match p.derives {
+			Some(ref derives) => {
+				let pname2_const = str_to_ident(vec![name.clone(), "_".to_owned(), derives.clone()].concat().as_slice());
+				let pname2 = str_to_ident(derives.as_slice());
+
+				match p.regs {
+					RegList::Registers(ref regs) => {
+						fields_extern.push(quote_tokens!(cx, static $pname_const: $pname2::Peripheral; ));
+						fields_system.push(quote_tokens!(cx, pub $pname: &'static $pname2::Peripheral,));
+						fields_init.push(quote_tokens!(cx, $pname: &$pname_const, ));
+					},
+					RegList::Cluster(ref clusters) => {
+						let mut cluster_tokens = vec![];
+						for c in clusters.iter() {
+							let cname = str_to_ident(c.name.as_slice());
+							let cname_const = str_to_ident(vec![name.clone(), p.name.clone(), c.name.clone()].connect("_").as_slice());
+
+							fields_extern.push(quote_tokens!(cx, static $cname_const: $pname2::$cname::Cluster; ));
+							cluster_tokens.push_all(quote_tokens!(cx,
+								$cname: &$cname_const,
+							).as_slice())
+						}
+						fields_system.push(quote_tokens!(cx, pub $pname: $pname2::Clusters,));
+						fields_init.push(quote_tokens!(cx, $pname: $pname2::Clusters { $cluster_tokens }, ));
+					}
+				}
+			},
+			_ => {
+				match p.regs {
+					RegList::Registers(ref regs) => {
+						fields_extern.push(quote_tokens!(cx, static $pname_const: $pname::Peripheral; ));
+						fields_system.push(quote_tokens!(cx, pub $pname: &'static $pname::Peripheral,));
+						fields_init.push(quote_tokens!(cx, $pname: &$pname_const, ));
+					},
+					RegList::Cluster(ref clusters) => {
+						let mut cluster_tokens = vec![];
+						for c in clusters.iter() {
+							let cname = str_to_ident(c.name.as_slice());
+							let cname_const = str_to_ident(vec![name.clone(), p.name.clone(), c.name.clone()].connect("_").as_slice());
+
+							fields_extern.push(quote_tokens!(cx, static $cname_const: $pname::$cname::Cluster; ));
+							cluster_tokens.push_all(quote_tokens!(cx,
+								$cname: &$cname_const,
+							).as_slice())
+						}
+						fields_system.push(quote_tokens!(cx, pub $pname: $pname::Clusters,));
+						fields_init.push(quote_tokens!(cx, $pname: $pname::Clusters { $cluster_tokens }, ));
+					}
+				}
+			}
+		}
 	}
 
 	box vec![
@@ -310,7 +479,7 @@ pub fn generate_system<'a>(cx: &'a mut ExtCtxt, name:String, peripherals:&Vec<Pe
 
 		quote_item!(cx,
 			#[allow(non_snake_case)]
-			#[deriving(Copy)]
+			#[derive(Copy)]
 			pub struct System {
 				$fields_system
 			}

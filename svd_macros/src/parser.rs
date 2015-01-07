@@ -106,6 +106,7 @@ pub fn parse_reg<'a>(reader:&mut Reader<'a>)
 			"reg32" => 4,
 			"reg8" | _ => 1,
 		},
+		dim: None,
 	})
 }
 
@@ -134,6 +135,8 @@ pub fn parse_peripheral<'a>(reader:&mut Reader<'a>)
 
 	Ok(PeripheralAst {
 		name: name,
-		regs: regs
+		address: 0,
+		regs: RegList::Registers(regs),
+		derives: None,
 	})
 }

@@ -1,8 +1,5 @@
 //! Peripheral macro.
 
-#![feature(phase, plugin_registrar, macro_rules, quote)]
-#![feature(globs)]
-
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
@@ -19,16 +16,6 @@ use ast::PeripheralAst;
 use reader::Reader;
 use parser::*;
 use generator::*;
-
-pub mod ast;
-pub mod reader;
-pub mod parser;
-pub mod generator;
-
-#[plugin_registrar]
-pub fn plugin_registrar(reg: &mut rustc::plugin::Registry) {
-    reg.register_macro("foo", regs_macro);
-}
 
 fn generate_peripherals<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, reader:&mut Reader<'a>)
   -> Result<Vec<P<syntax::ast::Item>>, String>
@@ -71,7 +58,7 @@ fn generate_peripherals<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, reader:&mut 
 	}
 }
 
-fn regs_macro<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, tokens: &[syntax::ast::TokenTree])
+pub fn svd_macro<'a>(cx: &'a mut ExtCtxt, sp: codemap::Span, tokens: &[syntax::ast::TokenTree])
   -> Box<MacResult + 'a>
 {
     // for i in tokens.iter() {

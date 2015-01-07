@@ -1,0 +1,13 @@
+[package]
+
+name = "svd"
+version = "1.0.0"
+authors = ["Technical Machine <team@technical.io>"]
+license = "MIT/Apache-2.0"
+description = """
+SVD structs in code.
+"""
+
+[lib]
+name="svd"
+crate-type = ["rlib"]

@@ -1,4 +1,4 @@
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct RegField {
     pub width: uint,
 }

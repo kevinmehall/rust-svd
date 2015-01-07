@@ -1,9 +1,0 @@
-[package]
-
-name = "foo"
-version = "0.0.1"
-authors = ["Tim Cameron Ryan <id@timryan.org>"]
-
-[lib]
-name="foo"
-crate-type = ["dylib"]

@@ -1,0 +1,19 @@
+[package]
+
+name = "svd_macros"
+version = "1.0.0"
+authors = ["Technical Machine <team@technical.io>"]license = "MIT/Apache-2.0"
+description = """
+SVD embedding macros in code.
+"""
+
+[lib]
+name="svd_macros"
+plugin = true
+
+[dependencies]
+fromxml = "1.2.0"
+svd = "1.0.0"
+
+[profile.dev]
+opt-level = 3
