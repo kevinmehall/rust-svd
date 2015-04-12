@@ -40,12 +40,12 @@ pub fn parse_field<'a>(reader:&mut Reader<'a>)
 	if reader.has_brackets() {
 		let braces = try!(reader.read_brackets());
 		let enumset = &mut braces.unpack_tree();
-		let mut enumvec:Vec<(String, uint)> = vec![];
+		let mut enumvec:Vec<(String, usize)> = vec![];
 		ignore_comments(enumset);
 		while enumset.has_ident() {
 			let name = try!(enumset.read_ident());
 			try!(enumset.read_token(Token::Eq));
-			let value = try!(enumset.read_int()) as uint;
+			let value = try!(enumset.read_int()) as usize;
 			enumvec.push((name, value));
 			match enumset.read_token(Token::Comma) {
 				Ok(..) => (),
@@ -61,7 +61,7 @@ pub fn parse_field<'a>(reader:&mut Reader<'a>)
 
 	Ok(FieldAst {
 		name: name,
-		width: subscript as uint,
+		width: subscript as usize,
 		enumerate: enumerate,
 	})
 }
@@ -72,7 +72,7 @@ pub fn parse_fields<'a>(reader:&mut Reader<'a>)
 	let mut out = VecMap::new();
 	ignore_comments(reader);
 	while reader.has_int() {
-		let pos = try!(reader.read_int()) as uint;
+		let pos = try!(reader.read_int()) as usize;
 		try!(reader.read_token(Token::FatArrow));
 		out.insert(pos, try!(parse_field(reader)));
 		match reader.read_token(Token::Comma) {
@@ -123,7 +123,7 @@ pub fn parse_peripheral<'a>(reader:&mut Reader<'a>)
 	let mut regs = VecMap::new();
 	ignore_comments(sub);
 	while sub.has_int() {
-		let pos = try!(sub.read_int()) as uint;
+		let pos = try!(sub.read_int()) as usize;
 		try!(sub.read_token(Token::FatArrow));
 		regs.insert(pos, try!(parse_reg(sub)));
 		let _ = sub.read_token(token::Comma); // optional

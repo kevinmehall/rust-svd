@@ -56,7 +56,7 @@ derive_fromxml! {
 
     struct Interrupt {
         name:String,
-        value:uint,
+        value:usize,
     }
 
     struct Register {
@@ -65,7 +65,7 @@ derive_fromxml! {
         dim:Option<u32>,
         dimIncrement:Option<u32>,
         description:Option<String>,
-        size:Option<uint>,
+        size:Option<usize>,
         access:Option<String>,
         fields:Option<Fields>,
     }
@@ -76,8 +76,8 @@ derive_fromxml! {
 
     struct Field {
         name:String,
-        bitOffset:uint,
-        bitWidth:uint,
+        bitOffset:usize,
+        bitWidth:usize,
         description:Option<String>,
         access:Option<String>,
         enumeratedValues:Option<EnumeratedValues>,
@@ -176,7 +176,7 @@ fn gen_regs(registers:&Vec<Register>) -> VecMap<ast::RegisterAst> {
                 }
             }
 
-            regmap.insert((register.addressOffset + (dim_increment * dim_i as u32)) as uint, ast::RegisterAst {
+            regmap.insert((register.addressOffset + (dim_increment * dim_i as u32)) as usize, ast::RegisterAst {
                 name: register.name.replace("%s", dim_i.to_string().as_slice()),
                 fields: fieldmap,
                 width: *register.size.as_ref().unwrap_or(&0) / 8,

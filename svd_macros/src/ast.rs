@@ -26,13 +26,13 @@ pub struct Cluster {
 pub struct RegisterAst {
 	pub name:String,
 	pub fields:VecMap<FieldAst>,
-	pub width:uint,
+	pub width:usize,
 	pub dim:Option<(u32, u32)>,
 }
 
 #[derive(Show, Clone)]
 pub struct FieldAst {
 	pub name:String,
-	pub width:uint,
-	pub enumerate:Option<Vec<(String, uint)>>
+	pub width:usize,
+	pub enumerate:Option<Vec<(String, usize)>>
 }
