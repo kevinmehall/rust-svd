@@ -21,7 +21,7 @@ use parser::*;
 // Register or space filler.
 enum StructMatch<'a> {
 	Reg(&'a RegisterAst),
-	Space(uint),
+	Space(usize),
 }
 
 fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
@@ -33,7 +33,7 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 	let mut reg_defaults:Vec<ast::TokenTree> = vec![];
 
 	// Create actual register mapping.
-	let mut byte_idx:uint = 0;
+	let mut byte_idx:usize = 0;
 	let mut regs:Vec<StructMatch> = vec![];
 	for (pos, reg) in regmap.iter() {
 		if pos > byte_idx {
@@ -53,7 +53,7 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 	}
 
 	// Generate registers.
-	let mut reserved_idx:uint = 0;
+	let mut reserved_idx:usize = 0;
 	for item in regs.iter() {
 		let mut reg;
 		match item {
@@ -129,22 +129,22 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 				None => {
 					update_fields.push_all(quote_tokens!(cx, 
 						#[inline(always)]
-						pub fn $field_name (&mut self, value:uint) -> &mut Update {
+						pub fn $field_name (&mut self, value:usize) -> &mut Update {
 							self.apply($pos, $field_name.update_value(value));
 							self
 						}
 					).as_slice());
 					set_fields.push_all(quote_tokens!(cx, 
 						#[inline(always)]
-						pub fn $field_name (&mut self, value:uint) -> &mut Set {
+						pub fn $field_name (&mut self, value:usize) -> &mut Set {
 							self.apply($pos, $field_name.set_value(value));
 							self
 						}
 					).as_slice());
 					read_fields.push_all(quote_tokens!(cx,
 						#[inline(always)]
-						pub fn $field_name (&self) -> uint {
-							$field_name.read(self.value as uint >> $pos)
+						pub fn $field_name (&self) -> usize {
+							$field_name.read(self.value as usize >> $pos)
 						}
 					).as_slice());
 				},
@@ -166,21 +166,21 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 					update_fields.push_all(quote_tokens!(cx, 
 						#[inline(always)]
 						pub fn $field_name (&mut self, choice:$field_name) -> &mut Update {
-							self.apply($pos, $field_name.update_value(choice as uint));
+							self.apply($pos, $field_name.update_value(choice as usize));
 							self
 						}
 					).as_slice());
 					set_fields.push_all(quote_tokens!(cx, 
 						#[inline(always)]
 						pub fn $field_name (&mut self, choice:$field_name) -> &mut Set {
-							self.apply($pos, $field_name.set_value(choice as uint));
+							self.apply($pos, $field_name.set_value(choice as usize));
 							self
 						}
 					).as_slice());
 					read_fields.push_all(quote_tokens!(cx,
 						#[inline(always)]
 						pub fn $field_name (&self) -> Option<$field_name> {
-							::std::num::FromPrimitive::from_uint($field_name.read(self.value as uint >> $pos))
+							::std::num::FromPrimitive::from_usize($field_name.read(self.value as usize >> $pos))
 						}
 					).as_slice());
 				}
@@ -190,7 +190,7 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 		let def_update = quote_tokens!(cx, 
 			pub struct Update {
 				pub origin:&'static Reg,
-				pub diff:(uint, uint),
+				pub diff:(usize, usize),
 			}
 
 			impl Drop for Update {
@@ -202,7 +202,7 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 
 			impl Update {
 				#[inline(always)]
-				fn apply(&mut self, pos:uint, diff:(uint, uint)) -> &mut Update {
+				fn apply(&mut self, pos:usize, diff:(usize, usize)) -> &mut Update {
 					self.diff = ::svd::util::or_tuples(self.diff, ::svd::util::shift_tuple(pos, diff));
 					self
 				}
@@ -214,7 +214,7 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 		let def_set = quote_tokens!(cx, 
 			pub struct Set {
 				pub origin:&'static Reg,
-				pub diff:(uint, uint),
+				pub diff:(usize, usize),
 			}
 
 			impl Drop for Set {
@@ -226,7 +226,7 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 			
 			impl Set {
 				#[inline(always)]
-				fn apply(&mut self, pos:uint, diff:(uint, uint)) -> &mut Set {
+				fn apply(&mut self, pos:usize, diff:(usize, usize)) -> &mut Set {
 					self.diff = ::svd::util::or_tuples(self.diff, ::svd::util::shift_tuple(pos, diff));
 					self
 				}
@@ -259,7 +259,7 @@ fn generate_regdefs<'a>(cx: &'a mut ExtCtxt, regmap:&VecMap<RegisterAst>)
 				}				
 
 				#[inline(always)]
-				pub fn modify(&self, diff: (uint, uint)) {
+				pub fn modify(&self, diff: (usize, usize)) {
 					let (c, s) = diff;
 					if c != 0 {
 						unsafe {
